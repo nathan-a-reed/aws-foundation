@@ -7,7 +7,7 @@ AWS Organization baseline shared by every application: accounts and guardrails, 
 | | |
 |---|---|
 | Jira project | `FND`: https://nathan-a-reed.atlassian.net/browse/FND |
-| Confluence space | To be decided |
+| Confluence space | `ENG` (Engineering): https://nathan-a-reed.atlassian.net/wiki/spaces/ENG |
 | Default branch | `main` |
 | Related repos | `engineering-standards` (source of `docs/standards/`), `portfolio-site` (planned), `outage-atlas`, `nasa-rag` |
 
@@ -86,6 +86,17 @@ No secrets are needed. Deployment targets are GitHub environment variables:
 - Required CI checks: `PR hygiene`; build and test checks are added in FND-9
 - Merge strategy: squash merge
 - Extra checklist items: notable `cdk diff` output for infrastructure changes
+
+## Confluence page map
+
+When asked for a Confluence update, these are the pages to change:
+
+| Change | Page |
+|---|---|
+| Organization, accounts, or Identity Center setup | AWS account setup runbook: https://nathan-a-reed.atlassian.net/wiki/spaces/ENG/pages/1835028 |
+| DNS | DNS migration runbook: https://nathan-a-reed.atlassian.net/wiki/spaces/ENG/pages/1867777 |
+| Budgets or cost | Cost and budgets: https://nathan-a-reed.atlassian.net/wiki/spaces/ENG/pages/1671189 |
+| Release | Release notes: https://nathan-a-reed.atlassian.net/wiki/spaces/ENG/pages/1376290 |
 
 ## Restrictions and known issues
 

@@ -38,28 +38,42 @@ Issue types: Epic, Story, Task, Bug, Feature, Subtask
 
 ## Commands
 
-The CDK app is added in FND-9. Until then there is nothing to build or test.
+Node.js 24 runs the TypeScript directly through type stripping; there is no build step.
+
+| Command | Purpose |
+|---|---|
+| `npm ci` | Install dependencies |
+| `npm run format:check` / `npm run format` | Check or apply Prettier formatting |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc` type check (no emit) |
+| `npm test` | Vitest assertion tests |
+| `npm run synth` | `cdk synth` with cdk-nag; needs account IDs, for example `MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999` |
 
 ## Architecture
 
-Planned layout, created in FND-9:
+```
+bin/app.ts             Entry point: management stack and test/prod stages
+lib/config.ts          Typed configuration; account IDs from environment variables
+lib/foundation-app.ts  Adds a stack or stage per environment that has an account ID
+lib/stacks/            Management and account baseline stacks
+lib/stages/            Stage for each workload account
+lib/constructs/        Reusable constructs, added when needed
+test/                  Assertion tests
+docs/adr/              Architecture decision records
+docs/standards/        Synced from engineering-standards
+```
 
-```
-bin/app.ts        Entry point: management stack and test/prod stages
-lib/config.ts     Typed per-account configuration
-lib/stacks/       Management, account baseline, DNS
-lib/constructs/   Reusable constructs
-test/             Assertion tests
-docs/adr/         Architecture decision records
-docs/standards/   Synced from engineering-standards
-```
+Stacks: `Foundation-Management-Organization` (construct path `Management`), `Foundation-Test-Baseline` (`Test/Baseline`), `Foundation-Prod-Baseline` (`Prod/Baseline`).
 
 Rules:
 
 - The management stack is deployed manually with Identity Center credentials. CI never has access to the management account.
 - Values other repositories need are published only as SSM parameters under `/foundation/`. Never use CloudFormation exports across repositories.
 - Changing or removing a `/foundation/` parameter is a breaking change for every application.
-- Account IDs come from environment configuration, never source.
+- Account IDs come from environment configuration, never source: `MANAGEMENT_ACCOUNT_ID`, `TEST_ACCOUNT_ID`, `PROD_ACCOUNT_ID`. An environment without one is left out of the app.
+- Use erasable TypeScript only (no enums, namespaces, or parameter properties); relative imports end in `.ts`.
+- cdk-nag v3 runs as a policy validation plugin on the app. Acknowledge findings on the specific resource with `Validations.of(resource).acknowledge({ id: 'AwsSolutions::AwsSolutions-<rule>', reason })`.
+- Stack tags are passed as the `tags` stack prop (`stackTags()` in `lib/config.ts`); `@aws-cdk/core:explicitStackTags` is on.
 
 ## Conventions
 
@@ -83,7 +97,7 @@ No secrets are needed. Deployment targets are GitHub environment variables:
 
 ## Pull requests
 
-- Required CI checks: `PR hygiene / PR hygiene`; build and test checks are added in FND-9
+- Required CI checks: `PR hygiene / PR hygiene`, `Quality`, `Tests`, `Synth`
 - Merge strategy: squash merge
 
 ## Confluence page map

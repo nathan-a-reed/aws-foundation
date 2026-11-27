@@ -2,7 +2,7 @@
 
 AWS Organization baseline for the `nathanreed.dev` projects: accounts and guardrails, sign-in through IAM Identity Center, GitHub deployment roles, DNS, and budgets. Application repositories build on it through a small contract of SSM parameters.
 
-**Status:** repository setup. Infrastructure code is added in upcoming changes.
+**Status:** CDK app scaffolded. The stacks are empty until guardrails, budgets, deployment roles, and DNS are added.
 
 ## Accounts
 
@@ -31,9 +31,139 @@ Applications read these parameters in their own account and never reference foun
 
 Changing or removing a parameter is a breaking change: the replacement is added first, consumers migrate, and the original is removed last.
 
-## Development
+## Architecture
 
-Prerequisites, commands, and the bootstrapping procedure are added with the CDK app.
+```mermaid
+flowchart LR
+  workstation["Workstation<br/>Identity Center session"]
+  actions["GitHub Actions<br/>OIDC"]
+
+  subgraph organization["AWS Organization"]
+    management["Management account<br/>Foundation-Management-Organization"]
+    subgraph workloads["Workloads OU"]
+      test["Test account<br/>Foundation-Test-Baseline"]
+      prod["Prod account<br/>Foundation-Prod-Baseline"]
+    end
+  end
+
+  workstation -- "cdk deploy" --> management
+  actions -- "merge to main" --> test
+  actions -- "after approval" --> prod
+  test -. "/foundation/ parameters" .-> testApps["Applications in test"]
+  prod -. "/foundation/ parameters" .-> prodApps["Applications in prod"]
+```
+
+| Stack | Account | Contains |
+|---|---|---|
+| `Foundation-Management-Organization` | Management | Service control policies, organization trail, budgets, cost anomaly detection |
+| `Foundation-Test-Baseline` | Test | Deployment roles, `test.nathanreed.dev` zone, `/foundation/` parameters |
+| `Foundation-Prod-Baseline` | Prod | Deployment roles, `nathanreed.dev` zone, `/foundation/` parameters |
+
+```
+bin/app.ts        Entry point: management stack and test/prod stages
+lib/config.ts     Typed configuration; account IDs from environment variables
+lib/stacks/       Management and account baseline stacks
+lib/stages/       Stage for each workload account
+test/             Assertion tests
+docs/adr/         Architecture decision records
+docs/standards/   Synced from engineering-standards
+```
+
+## Key decisions
+
+- **Decisions are recorded as ADRs** in [`docs/adr/`](docs/adr), starting with [0001](docs/adr/0001-record-architecture-decisions.md).
+- **Account IDs come from environment variables**, never source: `MANAGEMENT_ACCOUNT_ID`, `TEST_ACCOUNT_ID`, and `PROD_ACCOUNT_ID`. An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
+- **The management stack is deployed only from a workstation.** CI has no access to the management account.
+- **Node.js runs the TypeScript directly** through its built-in type stripping, so there is no compile step or TypeScript runner. Code uses only erasable syntax (no enums, namespaces, or parameter properties), and relative imports end in `.ts`. `tsc` runs as a type check only.
+- **cdk-nag runs as a CDK policy validation plugin.** Any `AwsSolutions` finding fails synthesis. Acknowledge a finding on the specific resource, with a reason:
+
+  ```ts
+  Validations.of(bucket).acknowledge({
+    id: 'AwsSolutions::AwsSolutions-S1',
+    reason: 'This bucket is the access log destination.',
+  });
+  ```
+
+- **Tags are set on every stack**: `Project`, `Environment`, and `Repository`. CloudFormation propagates stack tags to resources, so they work as cost allocation tags.
+
+## Local development
+
+Prerequisites:
+
+- Node.js 24 (see `.nvmrc`)
+- AWS CLI v2 with the `management`, `test`, and `prod` Identity Center profiles from the AWS account setup runbook
+
+```bash
+npm ci
+```
+
+| Command | Purpose |
+|---|---|
+| `npm run format` | Format with Prettier |
+| `npm run format:check` | Check formatting |
+| `npm run lint` | Lint with ESLint |
+| `npm run typecheck` | Type check with `tsc` |
+| `npm test` | Run the assertion tests |
+| `npm run synth` | Synthesize the environments that have account IDs set |
+
+Synthesis needs at least one account ID. Example IDs are enough to check the templates:
+
+```bash
+MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999 npm run synth
+```
+
+## Testing
+
+Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, and that cdk-nag blocks non-compliant resources in every stack. Security-critical properties, such as SCP statements and trust policy conditions, are tested as they are added.
+
+Pull requests run three checks: `Quality` (format, lint, type check), `Tests`, and `Synth` (`cdk synth` with cdk-nag, using example account IDs).
+
+## Bootstrapping
+
+Each account is bootstrapped once, in `us-east-1`, with an Identity Center `AdministratorAccess` session. No `--trust` option is passed, so the bootstrap roles trust only their own account. GitHub deployment roles in test and prod are created in the same account and need no cross-account trust.
+
+```bash
+aws sso login --profile management
+```
+
+```bash
+for profile in management test prod; do
+  account=$(aws sts get-caller-identity --profile "$profile" --query Account --output text)
+  npx cdk bootstrap "aws://$account/us-east-1" --profile "$profile" --termination-protection
+done
+```
+
+Confirm each account has a `CDKToolkit` stack:
+
+```bash
+for profile in management test prod; do
+  aws cloudformation describe-stacks --stack-name CDKToolkit --profile "$profile" --region us-east-1 --query 'Stacks[0].StackStatus' --output text
+done
+```
+
+## Deployment
+
+**Management**, from a workstation only:
+
+```bash
+aws sso login --profile management
+```
+
+```bash
+MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text) \
+  npx cdk deploy Management --profile management
+```
+
+**Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation:
+
+```bash
+TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text) \
+  npx cdk deploy 'Test/*' --profile test
+```
+
+## Expected cost
+
+The scaffold creates no billable resources. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
 
 ## Standards
 

@@ -2,7 +2,7 @@
 
 AWS Organization baseline for the `nathanreed.dev` projects: accounts and guardrails, sign-in through IAM Identity Center, GitHub deployment roles, DNS, and budgets. Application repositories build on it through a small contract of SSM parameters.
 
-**Status:** budgets and cost anomaly detection are defined in the management stack. Guardrails, deployment roles, and DNS are added next.
+**Status:** the management stack defines the organization trail, service control policies, root sign-in alert, budgets, and cost anomaly detection. Deployment roles and DNS are added next.
 
 ## Accounts
 
@@ -73,6 +73,7 @@ docs/standards/   Synced from engineering-standards
 
 - **Decisions are recorded as ADRs** in [`docs/adr/`](docs/adr), starting with [0001](docs/adr/0001-record-architecture-decisions.md).
 - **Account IDs and the cost alert address come from environment variables**, never source (see [Workstation variables](#workstation-variables)). An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
+- **Guardrails apply to the `Workloads` OU** ([ADR 0004](docs/adr/0004-organization-guardrails.md)). Two service control policies deny leaving the organization, changing the organization trail, root user actions outside centralized root access, and actions outside `us-east-1` other than global services. An organization trail records management events from every account.
 - **Budgets and anomaly alerts track gross spend** ([ADR 0003](docs/adr/0003-budgets-and-cost-anomaly-detection.md)). Credits and refunds are excluded, and one customer managed anomaly monitor covers all three accounts.
 - **The management stack is deployed only from a workstation** ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). CI has no access to the management account, and every account's bootstrap roles trust only that account.
 - **Node.js runs the TypeScript directly** through its built-in type stripping, so there is no compile step or TypeScript runner. Code uses only erasable syntax (no enums, namespaces, or parameter properties), and relative imports end in `.ts`. `tsc` runs as a type check only.
@@ -110,19 +111,24 @@ npm ci
 Synthesis needs at least one account ID. Example values are enough to check the templates:
 
 ```bash
-MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999 COST_ALERT_EMAIL=alerts@example.com npm run synth
+MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999 \
+  COST_ALERT_EMAIL=costs@example.com SECURITY_ALERT_EMAIL=security@example.com \
+  ORGANIZATION_ID=o-a1b2c3d4e5 WORKLOADS_OU_ID=ou-a1b2-c3d4e5f6 npm run synth
 ```
 
 ### Workstation variables
 
 | Variable | Needed for |
 |---|---|
-| `MANAGEMENT_ACCOUNT_ID` | Management stack; also requires the other three |
+| `MANAGEMENT_ACCOUNT_ID` | Management stack; requires all the others |
 | `TEST_ACCOUNT_ID` | Test stage and management budgets |
 | `PROD_ACCOUNT_ID` | Prod stage and management budgets |
-| `COST_ALERT_EMAIL` | Budget and anomaly alerts in the management stack |
+| `COST_ALERT_EMAIL` | Budget and anomaly alerts |
+| `SECURITY_ALERT_EMAIL` | Root sign-in alerts |
+| `ORGANIZATION_ID` | Organization trail (`o-...`) |
+| `WORKLOADS_OU_ID` | Target of the service control policies (`ou-...`) |
 
-Set them for the current shell before bootstrapping or deploying from a workstation. Replace the address with your own.
+Set them for the current shell before bootstrapping or deploying from a workstation. Replace the addresses with your own.
 
 Bash:
 
@@ -130,7 +136,11 @@ Bash:
 export MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text)
 export TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text)
 export PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --output text)
-export COST_ALERT_EMAIL=alerts@example.com
+export COST_ALERT_EMAIL=costs@example.com
+export SECURITY_ALERT_EMAIL=security@example.com
+export ORGANIZATION_ID=$(aws organizations describe-organization --profile management --query Organization.Id --output text)
+root_id=$(aws organizations list-roots --profile management --query 'Roots[0].Id' --output text)
+export WORKLOADS_OU_ID=$(aws organizations list-organizational-units-for-parent --profile management --parent-id "$root_id" --query "OrganizationalUnits[?Name=='Workloads'].Id" --output text)
 ```
 
 PowerShell:
@@ -139,12 +149,16 @@ PowerShell:
 $env:MANAGEMENT_ACCOUNT_ID = aws sts get-caller-identity --profile management --query Account --output text
 $env:TEST_ACCOUNT_ID = aws sts get-caller-identity --profile test --query Account --output text
 $env:PROD_ACCOUNT_ID = aws sts get-caller-identity --profile prod --query Account --output text
-$env:COST_ALERT_EMAIL = 'alerts@example.com'
+$env:COST_ALERT_EMAIL = 'costs@example.com'
+$env:SECURITY_ALERT_EMAIL = 'security@example.com'
+$env:ORGANIZATION_ID = aws organizations describe-organization --profile management --query Organization.Id --output text
+$rootId = aws organizations list-roots --profile management --query 'Roots[0].Id' --output text
+$env:WORKLOADS_OU_ID = aws organizations list-organizational-units-for-parent --profile management --parent-id $rootId --query "OrganizationalUnits[?Name=='Workloads'].Id" --output text
 ```
 
 ## Testing
 
-Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, and that cdk-nag blocks non-compliant resources in every stack. Security-critical properties, such as SCP statements and trust policy conditions, are tested as they are added.
+Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, that cdk-nag blocks non-compliant resources in every stack, budgets and anomaly alerts, the SCP statements and their attachment, the trail and its bucket's encryption, public access block, TLS policy, and expiration, and the root sign-in alert. The test app loads the feature flags from `cdk.json`, so tests see the same templates as `cdk synth`.
 
 Pull requests run three checks: `Quality` (format, lint, type check), `Tests`, and `Synth` (`cdk synth` with cdk-nag, using example account IDs).
 
@@ -196,6 +210,40 @@ foreach ($p in 'management', 'test', 'prod') {
 
 Bootstrap again with the same commands when a CDK release requires a newer bootstrap version.
 
+## Organization setup
+
+One-time steps in the management account, before the first deploy of the guardrails. Run them with the `management` profile.
+
+1. **Enable service control policies.** Check the root's policy types:
+
+   ```bash
+   aws organizations list-roots --profile management --query 'Roots[0].[Id,PolicyTypes]'
+   ```
+
+   If `SERVICE_CONTROL_POLICY` is not listed as `ENABLED`, enable it with the root ID (`r-...`) from that output:
+
+   ```bash
+   aws organizations enable-policy-type --profile management --root-id r-a1b2 --policy-type SERVICE_CONTROL_POLICY
+   ```
+
+2. **Give CloudTrail trusted access to the organization**, which an organization trail needs. Check, then enable if `cloudtrail.amazonaws.com` is not listed:
+
+   ```bash
+   aws organizations list-aws-service-access-for-organization --profile management
+   ```
+
+   ```bash
+   aws organizations enable-aws-service-access --profile management --service-principal cloudtrail.amazonaws.com
+   ```
+
+3. **Centralized root access** (console). In the IAM console of the management account, open **Root access management** and enable root credentials management and privileged root actions for member accounts. Then, for test and prod, choose the account, **Take privileged action**, and delete the root user credentials. Confirm both features are enabled:
+
+   ```bash
+   aws iam list-organizations-features --profile management
+   ```
+
+   The `workloads-baseline` SCP denies root user actions in test and prod except for these centralized root access sessions, so privileged tasks such as unlocking a bucket policy still work.
+
 ## Deployment
 
 **Management**, from a workstation only ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). Deploy promptly after a change merges so the account matches `main`.
@@ -219,6 +267,9 @@ After the first deploy of the budgets, complete these one-time steps in the mana
    ```
 
 2. Delete any budget created by hand before this stack existed (Billing and Cost Management → Budgets), so only the four budgets above remain.
+3. Confirm the SNS subscription from the email sent to `SECURITY_ALERT_EMAIL`. Root sign-in alerts are not delivered until it is confirmed.
+
+The root sign-in alert catches console sign-ins recorded in `us-east-1`. A sign-in through another Region's endpoint is still recorded by the trail but does not raise an alert.
 
 **Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation:
 
@@ -229,7 +280,7 @@ TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --o
 
 ## Expected cost
 
-Budgets without actions and Cost Anomaly Detection have no charge. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
+Budgets without actions and Cost Anomaly Detection have no charge. The first copy of management events delivered by a trail is free, so the organization trail costs only its S3 storage, a few cents a month. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
 
 ## Standards
 

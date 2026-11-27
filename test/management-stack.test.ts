@@ -1,11 +1,8 @@
-import { App } from 'aws-cdk-lib';
-import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Match } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../lib/config.ts';
-import { addFoundation } from '../lib/foundation-app.ts';
+import { exampleAccounts as accounts, exampleVariables, managementTemplate } from './fixtures.ts';
 
-const accounts = { management: '111122223333', test: '444455556666', prod: '777788889999' };
-const alertEmail = 'alerts@example.com';
+const alertEmail = exampleVariables.COST_ALERT_EMAIL;
 
 interface BudgetResource {
   Properties: {
@@ -14,20 +11,6 @@ interface BudgetResource {
       Subscribers: { SubscriptionType: string; Address: string }[];
     }[];
   };
-}
-
-function managementTemplate(): Template {
-  const config = loadConfig({
-    MANAGEMENT_ACCOUNT_ID: accounts.management,
-    TEST_ACCOUNT_ID: accounts.test,
-    PROD_ACCOUNT_ID: accounts.prod,
-    COST_ALERT_EMAIL: alertEmail,
-  });
-  const { management } = addFoundation(new App(), config);
-  if (!management) {
-    throw new Error('No management stack');
-  }
-  return Template.fromStack(management);
 }
 
 describe('ManagementStack budgets', () => {

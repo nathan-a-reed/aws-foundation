@@ -73,7 +73,7 @@ docs/standards/   Synced from engineering-standards
 
 - **Decisions are recorded as ADRs** in [`docs/adr/`](docs/adr), starting with [0001](docs/adr/0001-record-architecture-decisions.md).
 - **Account IDs come from environment variables**, never source: `MANAGEMENT_ACCOUNT_ID`, `TEST_ACCOUNT_ID`, and `PROD_ACCOUNT_ID`. An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
-- **The management stack is deployed only from a workstation.** CI has no access to the management account.
+- **The management stack is deployed only from a workstation** ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). CI has no access to the management account, and every account's bootstrap roles trust only that account.
 - **Node.js runs the TypeScript directly** through its built-in type stripping, so there is no compile step or TypeScript runner. Code uses only erasable syntax (no enums, namespaces, or parameter properties), and relative imports end in `.ts`. `tsc` runs as a type check only.
 - **cdk-nag runs as a CDK policy validation plugin.** Any `AwsSolutions` finding fails synthesis. Acknowledge a finding on the specific resource, with a reason:
 
@@ -90,7 +90,7 @@ docs/standards/   Synced from engineering-standards
 
 Prerequisites:
 
-- Node.js 24 (see `.nvmrc`)
+- Node.js 24 (see `.nvmrc`). On Windows: `winget install OpenJS.NodeJS.24`
 - AWS CLI v2 with the `management`, `test`, and `prod` Identity Center profiles from the AWS account setup runbook
 
 ```bash
@@ -120,10 +120,20 @@ Pull requests run three checks: `Quality` (format, lint, type check), `Tests`, a
 
 ## Bootstrapping
 
-Each account is bootstrapped once, in `us-east-1`, with an Identity Center `AdministratorAccess` session. No `--trust` option is passed, so the bootstrap roles trust only their own account. GitHub deployment roles in test and prod are created in the same account and need no cross-account trust.
+Each account is bootstrapped once, in `us-east-1`, with an Identity Center `AdministratorAccess` session. No `--trust` option is passed, so the bootstrap roles trust only their own account. GitHub deployment roles in test and prod are created in the same account and need no cross-account trust. See [ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md).
+
+Run the commands from the repository root with Node.js 24 and dependencies installed (`npm ci`). `cdk bootstrap` runs the app, so the account ID variables must be set even though the target accounts are given explicitly.
+
+Bash:
 
 ```bash
 aws sso login --profile management
+```
+
+```bash
+export MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text)
+export TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text)
+export PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --output text)
 ```
 
 ```bash
@@ -133,7 +143,26 @@ for profile in management test prod; do
 done
 ```
 
-Confirm each account has a `CDKToolkit` stack:
+PowerShell:
+
+```powershell
+aws sso login --profile management
+```
+
+```powershell
+$env:MANAGEMENT_ACCOUNT_ID = aws sts get-caller-identity --profile management --query Account --output text
+$env:TEST_ACCOUNT_ID = aws sts get-caller-identity --profile test --query Account --output text
+$env:PROD_ACCOUNT_ID = aws sts get-caller-identity --profile prod --query Account --output text
+```
+
+```powershell
+foreach ($p in 'management', 'test', 'prod') {
+  $account = aws sts get-caller-identity --profile $p --query Account --output text
+  npx cdk bootstrap "aws://$account/us-east-1" --profile $p --termination-protection
+}
+```
+
+Confirm each account has a `CDKToolkit` stack in `CREATE_COMPLETE` or `UPDATE_COMPLETE`:
 
 ```bash
 for profile in management test prod; do
@@ -141,9 +170,17 @@ for profile in management test prod; do
 done
 ```
 
+```powershell
+foreach ($p in 'management', 'test', 'prod') {
+  aws cloudformation describe-stacks --stack-name CDKToolkit --profile $p --region us-east-1 --query 'Stacks[0].StackStatus' --output text
+}
+```
+
+Bootstrap again with the same commands when a CDK release requires a newer bootstrap version.
+
 ## Deployment
 
-**Management**, from a workstation only:
+**Management**, from a workstation only ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). Deploy promptly after a change merges so the account matches `main`.
 
 ```bash
 aws sso login --profile management
@@ -152,6 +189,11 @@ aws sso login --profile management
 ```bash
 MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text) \
   npx cdk deploy Management --profile management
+```
+
+```powershell
+$env:MANAGEMENT_ACCOUNT_ID = aws sts get-caller-identity --profile management --query Account --output text
+npx cdk deploy Management --profile management
 ```
 
 **Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation:

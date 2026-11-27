@@ -45,10 +45,11 @@ jobs:
     name: Synth
     runs-on: ubuntu-latest
     env:
-      # Example account IDs: synthesis needs an account per environment, not real ones.
+      # Example values: synthesis needs an account per environment, not real ones.
       MANAGEMENT_ACCOUNT_ID: '111122223333'
       TEST_ACCOUNT_ID: '444455556666'
       PROD_ACCOUNT_ID: '777788889999'
+      COST_ALERT_EMAIL: alerts@example.com
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

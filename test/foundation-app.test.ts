@@ -11,6 +11,7 @@ const allAccounts = {
   MANAGEMENT_ACCOUNT_ID: '111122223333',
   TEST_ACCOUNT_ID: '444455556666',
   PROD_ACCOUNT_ID: '777788889999',
+  COST_ALERT_EMAIL: 'alerts@example.com',
 };
 
 function createApp(variables: Record<string, string> = allAccounts) {

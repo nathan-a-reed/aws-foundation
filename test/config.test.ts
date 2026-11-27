@@ -7,6 +7,7 @@ describe('loadConfig', () => {
       MANAGEMENT_ACCOUNT_ID: '111122223333',
       TEST_ACCOUNT_ID: '444455556666',
       PROD_ACCOUNT_ID: '777788889999',
+      COST_ALERT_EMAIL: 'alerts@example.com',
     });
 
     expect(config.accounts).toEqual({
@@ -26,6 +27,21 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ PROD_ACCOUNT_ID: '7777-8888-9999' })).toThrow(
       'PROD_ACCOUNT_ID must be a 12-digit AWS account ID.',
     );
+  });
+
+  it.each([
+    ['TEST_ACCOUNT_ID and PROD_ACCOUNT_ID', { TEST_ACCOUNT_ID: '444455556666' }],
+    ['COST_ALERT_EMAIL', { TEST_ACCOUNT_ID: '444455556666', PROD_ACCOUNT_ID: '777788889999' }],
+  ])('requires %s with the management account', (missing, variables) => {
+    expect(() => loadConfig({ MANAGEMENT_ACCOUNT_ID: '111122223333', ...variables })).toThrow(
+      `MANAGEMENT_ACCOUNT_ID also requires ${missing}.`,
+    );
+  });
+
+  it('rejects a cost alert address that is not an email address', () => {
+    expect(() =>
+      loadConfig({ TEST_ACCOUNT_ID: '444455556666', COST_ALERT_EMAIL: 'alerts.example.com' }),
+    ).toThrow('COST_ALERT_EMAIL must be an email address.');
   });
 
   it('requires at least one account ID', () => {

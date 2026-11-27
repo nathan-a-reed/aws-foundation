@@ -1,5 +1,13 @@
 export type EnvironmentName = 'management' | 'test' | 'prod';
 
+/** Monthly cost limits in US dollars. */
+export interface MonthlyBudgets {
+  readonly organization: number;
+  readonly management: number;
+  readonly test: number;
+  readonly prod: number;
+}
+
 export interface FoundationConfig {
   /** Value of the `Project` tag. */
   readonly project: string;
@@ -12,6 +20,11 @@ export interface FoundationConfig {
    * account it was not given.
    */
   readonly accounts: Readonly<Partial<Record<EnvironmentName, string>>>;
+  readonly budgets: MonthlyBudgets;
+  /** Total impact in US dollars at which a cost anomaly is emailed. */
+  readonly anomalyAlertThresholdUsd: number;
+  /** Address for budget and anomaly alerts. Set whenever the management account is. */
+  readonly costAlertEmail?: string;
 }
 
 export const accountIdVariables: Readonly<Record<EnvironmentName, string>> = {
@@ -22,11 +35,12 @@ export const accountIdVariables: Readonly<Record<EnvironmentName, string>> = {
 
 const environmentNames = Object.keys(accountIdVariables) as EnvironmentName[];
 const accountIdPattern = /^\d{12}$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Reads account IDs from environment variables. Account IDs are kept out of
- * source; CI provides them from GitHub environment variables and workstation
- * deploys from the shell.
+ * Reads account IDs and the cost alert address from environment variables.
+ * Both are kept out of source; CI provides them from GitHub environment
+ * variables and workstation deploys from the shell.
  */
 export function loadConfig(
   variables: Readonly<Record<string, string | undefined>>,
@@ -50,11 +64,30 @@ export function loadConfig(
     throw new Error(`Set at least one of ${names}.`);
   }
 
+  const emailValue = variables.COST_ALERT_EMAIL?.trim();
+  const costAlertEmail = emailValue === '' ? undefined : emailValue;
+
+  if (accounts.management) {
+    // The management stack budgets each member account, so it needs their IDs.
+    if (!accounts.test || !accounts.prod) {
+      throw new Error('MANAGEMENT_ACCOUNT_ID also requires TEST_ACCOUNT_ID and PROD_ACCOUNT_ID.');
+    }
+    if (!costAlertEmail) {
+      throw new Error('MANAGEMENT_ACCOUNT_ID also requires COST_ALERT_EMAIL.');
+    }
+  }
+  if (costAlertEmail && !emailPattern.test(costAlertEmail)) {
+    throw new Error('COST_ALERT_EMAIL must be an email address.');
+  }
+
   return {
     project: 'aws-foundation',
     repository: 'nathan-a-reed/aws-foundation',
     region: 'us-east-1',
     accounts,
+    budgets: { organization: 60, management: 5, test: 15, prod: 40 },
+    anomalyAlertThresholdUsd: 5,
+    costAlertEmail,
   };
 }
 

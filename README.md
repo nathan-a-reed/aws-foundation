@@ -2,7 +2,7 @@
 
 AWS Organization baseline for the `nathanreed.dev` projects: accounts and guardrails, sign-in through IAM Identity Center, GitHub deployment roles, DNS, and budgets. Application repositories build on it through a small contract of SSM parameters.
 
-**Status:** CDK app scaffolded. The stacks are empty until guardrails, budgets, deployment roles, and DNS are added.
+**Status:** budgets and cost anomaly detection are defined in the management stack. Guardrails, deployment roles, and DNS are added next.
 
 ## Accounts
 
@@ -72,7 +72,8 @@ docs/standards/   Synced from engineering-standards
 ## Key decisions
 
 - **Decisions are recorded as ADRs** in [`docs/adr/`](docs/adr), starting with [0001](docs/adr/0001-record-architecture-decisions.md).
-- **Account IDs come from environment variables**, never source: `MANAGEMENT_ACCOUNT_ID`, `TEST_ACCOUNT_ID`, and `PROD_ACCOUNT_ID`. An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
+- **Account IDs and the cost alert address come from environment variables**, never source (see [Workstation variables](#workstation-variables)). An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
+- **Budgets and anomaly alerts track gross spend** ([ADR 0003](docs/adr/0003-budgets-and-cost-anomaly-detection.md)). Credits and refunds are excluded, and one customer managed anomaly monitor covers all three accounts.
 - **The management stack is deployed only from a workstation** ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). CI has no access to the management account, and every account's bootstrap roles trust only that account.
 - **Node.js runs the TypeScript directly** through its built-in type stripping, so there is no compile step or TypeScript runner. Code uses only erasable syntax (no enums, namespaces, or parameter properties), and relative imports end in `.ts`. `tsc` runs as a type check only.
 - **cdk-nag runs as a CDK policy validation plugin.** Any `AwsSolutions` finding fails synthesis. Acknowledge a finding on the specific resource, with a reason:
@@ -106,10 +107,39 @@ npm ci
 | `npm test` | Run the assertion tests |
 | `npm run synth` | Synthesize the environments that have account IDs set |
 
-Synthesis needs at least one account ID. Example IDs are enough to check the templates:
+Synthesis needs at least one account ID. Example values are enough to check the templates:
 
 ```bash
-MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999 npm run synth
+MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999 COST_ALERT_EMAIL=alerts@example.com npm run synth
+```
+
+### Workstation variables
+
+| Variable | Needed for |
+|---|---|
+| `MANAGEMENT_ACCOUNT_ID` | Management stack; also requires the other three |
+| `TEST_ACCOUNT_ID` | Test stage and management budgets |
+| `PROD_ACCOUNT_ID` | Prod stage and management budgets |
+| `COST_ALERT_EMAIL` | Budget and anomaly alerts in the management stack |
+
+Set them for the current shell before bootstrapping or deploying from a workstation. Replace the address with your own.
+
+Bash:
+
+```bash
+export MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text)
+export TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text)
+export PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --output text)
+export COST_ALERT_EMAIL=alerts@example.com
+```
+
+PowerShell:
+
+```powershell
+$env:MANAGEMENT_ACCOUNT_ID = aws sts get-caller-identity --profile management --query Account --output text
+$env:TEST_ACCOUNT_ID = aws sts get-caller-identity --profile test --query Account --output text
+$env:PROD_ACCOUNT_ID = aws sts get-caller-identity --profile prod --query Account --output text
+$env:COST_ALERT_EMAIL = 'alerts@example.com'
 ```
 
 ## Testing
@@ -122,18 +152,12 @@ Pull requests run three checks: `Quality` (format, lint, type check), `Tests`, a
 
 Each account is bootstrapped once, in `us-east-1`, with an Identity Center `AdministratorAccess` session. No `--trust` option is passed, so the bootstrap roles trust only their own account. GitHub deployment roles in test and prod are created in the same account and need no cross-account trust. See [ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md).
 
-Run the commands from the repository root with Node.js 24 and dependencies installed (`npm ci`). `cdk bootstrap` runs the app, so the account ID variables must be set even though the target accounts are given explicitly.
+Run the commands from the repository root with Node.js 24 and dependencies installed (`npm ci`). `cdk bootstrap` runs the app, so set the [workstation variables](#workstation-variables) first, even though the target accounts are given explicitly.
 
 Bash:
 
 ```bash
 aws sso login --profile management
-```
-
-```bash
-export MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text)
-export TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text)
-export PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --output text)
 ```
 
 ```bash
@@ -147,12 +171,6 @@ PowerShell:
 
 ```powershell
 aws sso login --profile management
-```
-
-```powershell
-$env:MANAGEMENT_ACCOUNT_ID = aws sts get-caller-identity --profile management --query Account --output text
-$env:TEST_ACCOUNT_ID = aws sts get-caller-identity --profile test --query Account --output text
-$env:PROD_ACCOUNT_ID = aws sts get-caller-identity --profile prod --query Account --output text
 ```
 
 ```powershell
@@ -186,15 +204,21 @@ Bootstrap again with the same commands when a CDK release requires a newer boots
 aws sso login --profile management
 ```
 
-```bash
-MANAGEMENT_ACCOUNT_ID=$(aws sts get-caller-identity --profile management --query Account --output text) \
-  npx cdk deploy Management --profile management
-```
+Set the [workstation variables](#workstation-variables), then:
 
-```powershell
-$env:MANAGEMENT_ACCOUNT_ID = aws sts get-caller-identity --profile management --query Account --output text
+```bash
 npx cdk deploy Management --profile management
 ```
+
+After the first deploy of the budgets, complete these one-time steps in the management account:
+
+1. Activate the cost allocation tags. A key can be activated only after AWS has seen it on a resource, which can take up to 24 hours; rerun the command if a key is reported as not found.
+
+   ```bash
+   aws ce update-cost-allocation-tags-status --profile management --cost-allocation-tags-status TagKey=Project,Status=Active TagKey=Environment,Status=Active TagKey=Repository,Status=Active
+   ```
+
+2. Delete any budget created by hand before this stack existed (Billing and Cost Management → Budgets), so only the four budgets above remain.
 
 **Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation:
 
@@ -205,7 +229,7 @@ TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --o
 
 ## Expected cost
 
-The scaffold creates no billable resources. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
+Budgets without actions and Cost Anomaly Detection have no charge. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
 
 ## Standards
 

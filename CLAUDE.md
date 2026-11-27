@@ -83,9 +83,8 @@ No secrets are needed. Deployment targets are GitHub environment variables:
 
 ## Pull requests
 
-- Required CI checks: `PR hygiene`; build and test checks are added in FND-9
+- Required CI checks: `PR hygiene / PR hygiene`; build and test checks are added in FND-9
 - Merge strategy: squash merge
-- Extra checklist items: notable `cdk diff` output for infrastructure changes
 
 ## Confluence page map
 

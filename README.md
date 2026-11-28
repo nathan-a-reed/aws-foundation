@@ -96,6 +96,7 @@ Prerequisites:
 
 - Node.js 24 (see `.nvmrc`). On Windows: `winget install OpenJS.NodeJS.24`
 - AWS CLI v2 with the `management`, `test`, and `prod` Identity Center profiles from the AWS account setup runbook
+- GitHub CLI, signed in with `gh auth login`, to set deployment variables (see [Deployment roles](#deployment-roles)). On Windows: `winget install --id GitHub.cli`
 
 ```bash
 npm ci
@@ -319,7 +320,8 @@ for stage in test prod; do
   account=$(aws sts get-caller-identity --profile "$stage" --query Account --output text)
   for repo in aws-foundation portfolio-site outage-atlas nasa-rag; do
     role=$(aws cloudformation describe-stacks --stack-name "$stack" --profile "$stage" --region us-east-1 \
-      --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text)
+      --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text) || exit 1
+    if [[ "$role" != arn:* ]]; then echo "No role ARN for $repo in $stack" >&2; exit 1; fi
     gh variable set AWS_ACCOUNT_ID --repo "nathan-a-reed/$repo" --env "$stage" --body "$account"
     gh variable set AWS_DEPLOY_ROLE_ARN --repo "nathan-a-reed/$repo" --env "$stage" --body "$role"
   done
@@ -334,6 +336,7 @@ foreach ($stage in 'test', 'prod') {
   $account = aws sts get-caller-identity --profile $stage --query Account --output text
   foreach ($repo in 'aws-foundation', 'portfolio-site', 'outage-atlas', 'nasa-rag') {
     $role = aws cloudformation describe-stacks --stack-name $stack --profile $stage --region us-east-1 --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text
+    if ($role -notlike 'arn:*') { throw "No role ARN for $repo in $stack" }
     gh variable set AWS_ACCOUNT_ID --repo "nathan-a-reed/$repo" --env $stage --body $account
     gh variable set AWS_DEPLOY_ROLE_ARN --repo "nathan-a-reed/$repo" --env $stage --body $role
   }

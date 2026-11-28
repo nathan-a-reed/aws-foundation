@@ -66,3 +66,6 @@ jobs:
           aws-region: us-east-1
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
       - run: npx cdk deploy 'Prod/*' --require-approval never
+        env:
+          # A secret, not a variable, so the address is masked in the public logs.
+          SERVER_IP_ADDRESS: ${{ secrets.SERVER_IP_ADDRESS }}

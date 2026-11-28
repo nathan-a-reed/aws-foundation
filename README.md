@@ -273,7 +273,9 @@ After the first deploy of the budgets, complete these one-time steps in the mana
 
 The root sign-in alert catches console sign-ins recorded in `us-east-1`. A sign-in through another Region's endpoint is still recorded by the trail but does not raise an alert.
 
-**Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation:
+**Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation after `aws sso login --profile management`.
+
+Bash:
 
 ```bash
 TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text) \
@@ -285,6 +287,18 @@ PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --o
   npx cdk deploy 'Prod/*' --profile prod
 ```
 
+PowerShell:
+
+```powershell
+$env:TEST_ACCOUNT_ID = aws sts get-caller-identity --profile test --query Account --output text
+npx cdk deploy 'Test/*' --profile test
+```
+
+```powershell
+$env:PROD_ACCOUNT_ID = aws sts get-caller-identity --profile prod --query Account --output text
+npx cdk deploy 'Prod/*' --profile prod
+```
+
 ## Deployment roles
 
 Each repository in `deploymentRepositories` (`lib/config.ts`) has a role in test and in prod ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)):
@@ -294,17 +308,39 @@ Each repository in `deploymentRepositories` (`lib/config.ts`) has a role in test
 
 The repositories are `aws-foundation`, `portfolio-site`, `outage-atlas`, and `nasa-rag`. To add one, add it to the list, deploy the test and prod baseline stacks, and set its GitHub environment variables.
 
-After deploying a baseline stack, set the variables in each repository's GitHub environment from the stack outputs. Each repository needs `test` and `prod` environments; `prod` should require approval and allow deployments only from `main`. With the GitHub CLI, for `aws-foundation` in test:
+After deploying a baseline stack, set the variables in each repository's GitHub environment from the stack outputs. Each repository needs `test` and `prod` environments; `prod` should require approval and allow deployments only from `main`. With the GitHub CLI signed in (`gh auth login`), set them for every repository and environment:
+
+Bash:
 
 ```bash
-account=$(aws sts get-caller-identity --profile test --query Account --output text)
-role=$(aws cloudformation describe-stacks --stack-name Foundation-Test-Baseline --profile test --region us-east-1 \
-  --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the test environment of nathan-a-reed/aws-foundation'].OutputValue" --output text)
-gh variable set AWS_ACCOUNT_ID --repo nathan-a-reed/aws-foundation --env test --body "$account"
-gh variable set AWS_DEPLOY_ROLE_ARN --repo nathan-a-reed/aws-foundation --env test --body "$role"
+for stage in test prod; do
+  stack=Foundation-Test-Baseline
+  [ "$stage" = prod ] && stack=Foundation-Prod-Baseline
+  account=$(aws sts get-caller-identity --profile "$stage" --query Account --output text)
+  for repo in aws-foundation portfolio-site outage-atlas nasa-rag; do
+    role=$(aws cloudformation describe-stacks --stack-name "$stack" --profile "$stage" --region us-east-1 \
+      --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text)
+    gh variable set AWS_ACCOUNT_ID --repo "nathan-a-reed/$repo" --env "$stage" --body "$account"
+    gh variable set AWS_DEPLOY_ROLE_ARN --repo "nathan-a-reed/$repo" --env "$stage" --body "$role"
+  done
+done
 ```
 
-Repeat with `prod` (profile, stack `Foundation-Prod-Baseline`, environment, and output description) and with each repository name. A workflow job then authenticates with:
+PowerShell:
+
+```powershell
+foreach ($stage in 'test', 'prod') {
+  $stack = if ($stage -eq 'test') { 'Foundation-Test-Baseline' } else { 'Foundation-Prod-Baseline' }
+  $account = aws sts get-caller-identity --profile $stage --query Account --output text
+  foreach ($repo in 'aws-foundation', 'portfolio-site', 'outage-atlas', 'nasa-rag') {
+    $role = aws cloudformation describe-stacks --stack-name $stack --profile $stage --region us-east-1 --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text
+    gh variable set AWS_ACCOUNT_ID --repo "nathan-a-reed/$repo" --env $stage --body $account
+    gh variable set AWS_DEPLOY_ROLE_ARN --repo "nathan-a-reed/$repo" --env $stage --body $role
+  }
+}
+```
+
+A workflow job then authenticates with:
 
 ```yaml
 environment: test

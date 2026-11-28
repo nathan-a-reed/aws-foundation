@@ -32,6 +32,8 @@ export function addFoundation(app: App, config: FoundationConfig): FoundationApp
         env: { account: accounts.test, region },
         stackNamePrefix: 'Foundation-Test',
         tags: stackTags(config, 'test'),
+        gitHubEnvironment: 'test',
+        deploymentRepositories: config.deploymentRepositories,
       })
     : undefined;
 
@@ -40,6 +42,8 @@ export function addFoundation(app: App, config: FoundationConfig): FoundationApp
         env: { account: accounts.prod, region },
         stackNamePrefix: 'Foundation-Prod',
         tags: stackTags(config, 'prod'),
+        gitHubEnvironment: 'prod',
+        deploymentRepositories: config.deploymentRepositories,
       })
     : undefined;
 

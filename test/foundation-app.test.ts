@@ -1,21 +1,17 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { App, type Stack } from 'aws-cdk-lib';
+import type { Stack } from 'aws-cdk-lib';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../lib/config.ts';
 import { addFoundation } from '../lib/foundation-app.ts';
+import { createTestApp, exampleVariables } from './fixtures.ts';
 
-const allAccounts = {
-  MANAGEMENT_ACCOUNT_ID: '111122223333',
-  TEST_ACCOUNT_ID: '444455556666',
-  PROD_ACCOUNT_ID: '777788889999',
-  COST_ALERT_EMAIL: 'alerts@example.com',
-};
+const allAccounts = exampleVariables;
 
 function createApp(variables: Record<string, string> = allAccounts) {
-  const app = new App({ outdir: mkdtempSync(join(tmpdir(), 'foundation-')) });
+  const app = createTestApp({ outdir: mkdtempSync(join(tmpdir(), 'foundation-')) });
   const foundation = addFoundation(app, loadConfig(variables));
   const stacks: Record<string, Stack | undefined> = {
     management: foundation.management,

@@ -16,20 +16,16 @@ export function addFoundation(app: App, config: FoundationConfig): FoundationApp
 
   Validations.of(app).addPlugins(new AwsSolutionsChecks(app, { verbose: true }));
 
-  // loadConfig guarantees the member account IDs and alert email with management.
-  const management =
-    accounts.management && accounts.test && accounts.prod && config.costAlertEmail
-      ? new ManagementStack(app, 'Management', {
-          stackName: 'Foundation-Management-Organization',
-          env: { account: accounts.management, region },
-          tags: stackTags(config, 'management'),
-          terminationProtection: true,
-          accountIds: { management: accounts.management, test: accounts.test, prod: accounts.prod },
-          budgets: config.budgets,
-          costAlertEmail: config.costAlertEmail,
-          anomalyAlertThresholdUsd: config.anomalyAlertThresholdUsd,
-        })
-      : undefined;
+  const management = config.management
+    ? new ManagementStack(app, 'Management', {
+        stackName: 'Foundation-Management-Organization',
+        env: { account: config.management.accountId, region },
+        tags: stackTags(config, 'management'),
+        terminationProtection: true,
+        config,
+        management: config.management,
+      })
+    : undefined;
 
   const test = accounts.test
     ? new WorkloadStage(app, 'Test', {

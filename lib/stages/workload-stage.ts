@@ -1,6 +1,7 @@
 import { Stage, type StageProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import type { HostedZoneConfig } from '../config.ts';
+import type { GitHubRepository } from '../constructs/github-deployment-roles.ts';
 import { AccountBaselineStack } from '../stacks/account-baseline-stack.ts';
 
 export interface WorkloadStageProps extends StageProps {
@@ -10,8 +11,8 @@ export interface WorkloadStageProps extends StageProps {
   readonly tags: Record<string, string>;
   /** GitHub environment that deploys to this account: `test` or `prod`. */
   readonly gitHubEnvironment: string;
-  /** Repositories, as `owner/name`, that deploy to this account. */
-  readonly deploymentRepositories: readonly string[];
+  /** Repositories that deploy to this account. */
+  readonly deploymentRepositories: readonly GitHubRepository[];
   /** The account's public hosted zone, if it has one. */
   readonly hostedZone?: HostedZoneConfig;
 }

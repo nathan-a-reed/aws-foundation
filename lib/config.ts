@@ -1,4 +1,5 @@
 import type { DnsRecord } from './constructs/account-dns-zone.ts';
+import type { GitHubRepository } from './constructs/github-deployment-roles.ts';
 import { prodZoneRecords } from './dns/prod-zone-records.ts';
 
 export type EnvironmentName = 'management' | 'test' | 'prod';
@@ -42,11 +43,8 @@ export interface FoundationConfig {
   /** Value of the `Repository` tag. */
   readonly repository: string;
   readonly region: string;
-  /**
-   * Repositories, as `owner/name`, that get a GitHub OIDC deployment role in
-   * the test and prod accounts.
-   */
-  readonly deploymentRepositories: readonly string[];
+  /** Repositories that get a GitHub OIDC deployment role in the test and prod accounts. */
+  readonly deploymentRepositories: readonly GitHubRepository[];
   /** Hosted zones by workload environment. An environment without one has no zone. */
   readonly hostedZones: Readonly<Partial<Record<WorkloadEnvironmentName, HostedZoneConfig>>>;
   /**
@@ -181,11 +179,13 @@ export function loadConfig(variables: Variables): FoundationConfig {
     project: 'aws-foundation',
     repository: 'nathan-a-reed/aws-foundation',
     region: 'us-east-1',
+    // IDs from GitHub's OIDC subject claim prefix for each repository
+    // (GET /repos/{owner}/{repo}/actions/oidc/customization/sub).
     deploymentRepositories: [
-      'nathan-a-reed/aws-foundation',
-      'nathan-a-reed/portfolio-site',
-      'nathan-a-reed/outage-atlas',
-      'nathan-a-reed/nasa-rag',
+      { fullName: 'nathan-a-reed/aws-foundation', ownerId: 149594858, id: 1470959404 },
+      { fullName: 'nathan-a-reed/portfolio-site', ownerId: 149594858, id: 1471033471 },
+      { fullName: 'nathan-a-reed/outage-atlas', ownerId: 149594858, id: 1471013954 },
+      { fullName: 'nathan-a-reed/nasa-rag', ownerId: 149594858, id: 1471014189 },
     ],
     hostedZones: loadHostedZones(variables, accounts),
     accounts,

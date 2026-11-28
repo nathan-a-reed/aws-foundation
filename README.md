@@ -77,7 +77,7 @@ docs/standards/   Synced from engineering-standards
 - **The `nathanreed.dev` zone lives in prod** ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)), with the records copied from the zone the domain registration created in the management account. The home lab address comes from `SERVER_IP_ADDRESS`, not source. See [DNS](#dns).
 - **Guardrails apply to the `Workloads` OU** ([ADR 0004](docs/adr/0004-organization-guardrails.md)). Two service control policies deny leaving the organization, changing the organization trail, root user actions outside centralized root access, and actions outside `us-east-1` other than global services. An organization trail records management events from every account.
 - **Budgets and anomaly alerts track gross spend** ([ADR 0003](docs/adr/0003-budgets-and-cost-anomaly-detection.md)). Credits and refunds are excluded, and one customer managed anomaly monitor covers all three accounts.
-- **GitHub Actions deploy through one OIDC role per repository and account** ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)). A role trusts only `repo:<owner>/<repo>:environment:<test|prod>` and can only assume the CDK bootstrap roles. See [Deployment roles](#deployment-roles).
+- **GitHub Actions deploy through one OIDC role per repository and account** ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)). A role trusts only its repository's immutable OIDC subject, `repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:<test|prod>` ([ADR 0008](docs/adr/0008-immutable-oidc-subjects.md)), and can only assume the CDK bootstrap roles. See [Deployment roles](#deployment-roles).
 - **A push to `main` deploys test, then prod after approval** ([ADR 0006](docs/adr/0006-deploy-workload-stacks-from-github-actions.md)), through the `Deploy` workflow. Each job synthesizes only its own account's stage.
 - **The management stack is deployed only from a workstation** ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). CI has no access to the management account, and every account's bootstrap roles trust only that account.
 - **Node.js runs the TypeScript directly** through its built-in type stripping, so there is no compile step or TypeScript runner. Code uses only erasable syntax (no enums, namespaces, or parameter properties), and relative imports end in `.ts`. `tsc` runs as a type check only.
@@ -298,10 +298,10 @@ PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --o
 
 Each repository in `deploymentRepositories` (`lib/config.ts`) has a role in test and in prod ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)):
 
-- The trust policy accepts only GitHub OIDC tokens with audience `sts.amazonaws.com` and subject `repo:<owner>/<repo>:environment:<test|prod>`, so only jobs that run in that repository's matching GitHub environment can assume it.
+- The trust policy accepts only GitHub OIDC tokens with audience `sts.amazonaws.com` and the repository's immutable subject `repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:<test|prod>`, so only jobs that run in that repository's matching GitHub environment can assume it.
 - The role can only assume the account's CDK deploy, file publishing, and image publishing bootstrap roles. CloudFormation makes the changes.
 
-The repositories are `aws-foundation`, `portfolio-site`, `outage-atlas`, and `nasa-rag`. To add one, add it to the list, deploy the test and prod baseline stacks, and set its GitHub environment variables.
+The repositories are `aws-foundation`, `portfolio-site`, `outage-atlas`, and `nasa-rag`. To add one, add it to the list with its owner and repository IDs (the `sub_claim_prefix` from `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`), deploy the test and prod baseline stacks, and set its GitHub environment variables.
 
 After deploying a baseline stack, set the variables in each repository's GitHub environment from the stack outputs. Each repository needs `test` and `prod` environments; `prod` should require approval and allow deployments only from `main`. With the GitHub CLI, for `aws-foundation` in test:
 

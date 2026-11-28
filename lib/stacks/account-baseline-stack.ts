@@ -1,5 +1,7 @@
 import { Stack, type StackProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
+import type { HostedZoneConfig } from '../config.ts';
+import { AccountDnsZone } from '../constructs/account-dns-zone.ts';
 import { GitHubDeploymentRoles } from '../constructs/github-deployment-roles.ts';
 
 export interface AccountBaselineStackProps extends StackProps {
@@ -7,6 +9,8 @@ export interface AccountBaselineStackProps extends StackProps {
   readonly gitHubEnvironment: string;
   /** Repositories, as `owner/name`, that deploy to this account. */
   readonly deploymentRepositories: readonly string[];
+  /** The account's public hosted zone, if it has one. */
+  readonly hostedZone?: HostedZoneConfig;
 }
 
 /**
@@ -15,6 +19,7 @@ export interface AccountBaselineStackProps extends StackProps {
  */
 export class AccountBaselineStack extends Stack {
   public readonly deploymentRoles: GitHubDeploymentRoles;
+  public readonly dnsZone?: AccountDnsZone;
 
   constructor(scope: Construct, id: string, props: AccountBaselineStackProps) {
     super(scope, id, props);
@@ -23,5 +28,9 @@ export class AccountBaselineStack extends Stack {
       repositories: props.deploymentRepositories,
       gitHubEnvironment: props.gitHubEnvironment,
     });
+
+    if (props.hostedZone) {
+      this.dnsZone = new AccountDnsZone(this, 'DnsZone', props.hostedZone);
+    }
   }
 }

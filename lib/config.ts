@@ -1,4 +1,17 @@
+import type { DnsRecord } from './constructs/account-dns-zone.ts';
+import { prodZoneRecords } from './dns/prod-zone-records.ts';
+
 export type EnvironmentName = 'management' | 'test' | 'prod';
+export type WorkloadEnvironmentName = Exclude<EnvironmentName, 'management'>;
+
+/** A public hosted zone in a workload account. */
+export interface HostedZoneConfig {
+  readonly zoneName: string;
+  /** Every record set except the zone's own NS and SOA records. */
+  readonly records: readonly DnsRecord[];
+  /** Keep the zone if its stack is deleted. */
+  readonly retain: boolean;
+}
 
 /** Monthly cost limits in US dollars. */
 export interface MonthlyBudgets {
@@ -34,6 +47,8 @@ export interface FoundationConfig {
    * the test and prod accounts.
    */
   readonly deploymentRepositories: readonly string[];
+  /** Hosted zones by workload environment. An environment without one has no zone. */
+  readonly hostedZones: Readonly<Partial<Record<WorkloadEnvironmentName, HostedZoneConfig>>>;
   /**
    * Account IDs for the environments to synthesize. An environment without an
    * account ID is left out of the app, so a deployment can never target an
@@ -143,6 +158,9 @@ export function loadConfig(variables: Variables): FoundationConfig {
       'nathan-a-reed/outage-atlas',
       'nathan-a-reed/nasa-rag',
     ],
+    hostedZones: {
+      prod: { zoneName: 'nathanreed.dev', records: prodZoneRecords, retain: true },
+    },
     accounts,
     management: loadManagementConfig(variables, accounts),
     budgets: { organization: 60, management: 5, test: 15, prod: 40 },

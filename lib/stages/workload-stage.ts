@@ -1,5 +1,6 @@
 import { Stage, type StageProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
+import type { HostedZoneConfig } from '../config.ts';
 import { AccountBaselineStack } from '../stacks/account-baseline-stack.ts';
 
 export interface WorkloadStageProps extends StageProps {
@@ -11,6 +12,8 @@ export interface WorkloadStageProps extends StageProps {
   readonly gitHubEnvironment: string;
   /** Repositories, as `owner/name`, that deploy to this account. */
   readonly deploymentRepositories: readonly string[];
+  /** The account's public hosted zone, if it has one. */
+  readonly hostedZone?: HostedZoneConfig;
 }
 
 /** Foundation stacks for one workload account, deployed by CI. */
@@ -26,6 +29,7 @@ export class WorkloadStage extends Stage {
       terminationProtection: true,
       gitHubEnvironment: props.gitHubEnvironment,
       deploymentRepositories: props.deploymentRepositories,
+      hostedZone: props.hostedZone,
     });
   }
 }

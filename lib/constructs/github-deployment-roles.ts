@@ -13,9 +13,31 @@ export const gitHubTokenIssuer = 'token.actions.githubusercontent.com';
 /** Audience `aws-actions/configure-aws-credentials` requests by default. */
 export const gitHubTokenAudience = 'sts.amazonaws.com';
 
+/** A repository with the numeric IDs GitHub puts in immutable OIDC subjects. */
+export interface GitHubRepository {
+  /** `owner/name`. */
+  readonly fullName: string;
+  readonly ownerId: number;
+  readonly id: number;
+}
+
+/**
+ * The token subject of a workflow job that runs in `environment`, in GitHub's
+ * immutable format: `repo:<owner>@<owner-id>/<name>@<id>:environment:<environment>`.
+ * Owner and repository IDs never change, so a deleted repository recreated
+ * under the same name cannot match.
+ */
+export function gitHubSubject(repository: GitHubRepository, environment: string): string {
+  const [owner, name, ...rest] = repository.fullName.split('/');
+  if (!owner || !name || rest.length > 0) {
+    throw new Error(`Repository ${repository.fullName} must be owner/name.`);
+  }
+  return `repo:${owner}@${String(repository.ownerId)}/${name}@${String(repository.id)}:environment:${environment}`;
+}
+
 export interface GitHubDeploymentRolesProps {
-  /** Repositories, as `owner/name`, that each get a deployment role. */
-  readonly repositories: readonly string[];
+  /** Repositories that each get a deployment role. */
+  readonly repositories: readonly GitHubRepository[];
   /** GitHub environment a workflow job must run in to assume a role. */
   readonly gitHubEnvironment: string;
 }
@@ -66,13 +88,14 @@ export class GitHubDeploymentRoles extends Construct {
 
     const roles = new Map<string, Role>();
     for (const repository of props.repositories) {
-      const roleId = `${constructIdFor(repository)}DeployRole`;
+      const { fullName } = repository;
+      const roleId = `${constructIdFor(fullName)}DeployRole`;
       const role = new Role(this, roleId, {
-        description: `GitHub Actions deployments of ${repository} from the ${props.gitHubEnvironment} environment`,
+        description: `GitHub Actions deployments of ${fullName} from the ${props.gitHubEnvironment} environment`,
         assumedBy: new WebIdentityPrincipal(this.provider.oidcProviderArn, {
           StringEquals: {
             [`${gitHubTokenIssuer}:aud`]: gitHubTokenAudience,
-            [`${gitHubTokenIssuer}:sub`]: `repo:${repository}:environment:${props.gitHubEnvironment}`,
+            [`${gitHubTokenIssuer}:sub`]: gitHubSubject(repository, props.gitHubEnvironment),
           },
         }),
       });
@@ -85,10 +108,10 @@ export class GitHubDeploymentRoles extends Construct {
         }),
       );
       new CfnOutput(this, `${roleId}Arn`, {
-        description: `AWS_DEPLOY_ROLE_ARN for the ${props.gitHubEnvironment} environment of ${repository}`,
+        description: `AWS_DEPLOY_ROLE_ARN for the ${props.gitHubEnvironment} environment of ${fullName}`,
         value: role.roleArn,
       });
-      roles.set(repository, role);
+      roles.set(fullName, role);
     }
     this.roles = roles;
   }

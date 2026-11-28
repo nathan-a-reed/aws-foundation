@@ -9,12 +9,15 @@ import {
   managementTemplate,
 } from './fixtures.ts';
 
-const repositories = [
-  'nathan-a-reed/aws-foundation',
-  'nathan-a-reed/portfolio-site',
-  'nathan-a-reed/outage-atlas',
-  'nathan-a-reed/nasa-rag',
-];
+// Subject prefixes as GitHub reports them for each repository
+// (GET /repos/{owner}/{repo}/actions/oidc/customization/sub).
+const subjectPrefixes: Record<string, string> = {
+  'nathan-a-reed/aws-foundation': 'repo:nathan-a-reed@149594858/aws-foundation@1470959404',
+  'nathan-a-reed/portfolio-site': 'repo:nathan-a-reed@149594858/portfolio-site@1471033471',
+  'nathan-a-reed/outage-atlas': 'repo:nathan-a-reed@149594858/outage-atlas@1471013954',
+  'nathan-a-reed/nasa-rag': 'repo:nathan-a-reed@149594858/nasa-rag@1471014189',
+};
+const repositories = Object.keys(subjectPrefixes);
 
 const environments = ['test', 'prod'] as const;
 type Environment = (typeof environments)[number];
@@ -88,9 +91,9 @@ describe.each(environments)('%s deployment roles', (environment) => {
     template.resourceCountIs('AWS::IAM::Role', repositories.length);
   });
 
-  it.each(repositories)(
+  it.each(Object.entries(subjectPrefixes))(
     `lets only %s jobs in the ${environment} environment assume its role`,
-    (repository) => {
+    (repository, subjectPrefix) => {
       const [, role] = deploymentRole(template, repository, environment);
 
       expect(role.Properties.AssumeRolePolicyDocument.Statement).toEqual([
@@ -101,7 +104,7 @@ describe.each(environments)('%s deployment roles', (environment) => {
           Condition: {
             StringEquals: {
               'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-              'token.actions.githubusercontent.com:sub': `repo:${repository}:environment:${environment}`,
+              'token.actions.githubusercontent.com:sub': `${subjectPrefix}:environment:${environment}`,
             },
           },
         },

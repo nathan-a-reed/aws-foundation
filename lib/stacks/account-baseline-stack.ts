@@ -2,13 +2,16 @@ import { Stack, type StackProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import type { HostedZoneConfig } from '../config.ts';
 import { AccountDnsZone } from '../constructs/account-dns-zone.ts';
-import { GitHubDeploymentRoles } from '../constructs/github-deployment-roles.ts';
+import {
+  GitHubDeploymentRoles,
+  type GitHubRepository,
+} from '../constructs/github-deployment-roles.ts';
 
 export interface AccountBaselineStackProps extends StackProps {
   /** GitHub environment that deploys to this account: `test` or `prod`. */
   readonly gitHubEnvironment: string;
-  /** Repositories, as `owner/name`, that deploy to this account. */
-  readonly deploymentRepositories: readonly string[];
+  /** Repositories that deploy to this account. */
+  readonly deploymentRepositories: readonly GitHubRepository[];
   /** The account's public hosted zone, if it has one. */
   readonly hostedZone?: HostedZoneConfig;
 }

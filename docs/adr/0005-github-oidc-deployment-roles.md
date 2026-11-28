@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The subject format is superseded by [ADR 0008](0008-immutable-oidc-subjects.md).
 
 ## Context
 

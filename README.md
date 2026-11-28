@@ -96,7 +96,6 @@ Prerequisites:
 
 - Node.js 24 (see `.nvmrc`). On Windows: `winget install OpenJS.NodeJS.24`
 - AWS CLI v2 with the `management`, `test`, and `prod` Identity Center profiles from the AWS account setup runbook
-- GitHub CLI, signed in with `gh auth login`, to set deployment variables (see [Deployment roles](#deployment-roles)). On Windows: `winget install --id GitHub.cli`
 
 ```bash
 npm ci
@@ -309,7 +308,7 @@ Each repository in `deploymentRepositories` (`lib/config.ts`) has a role in test
 
 The repositories are `aws-foundation`, `portfolio-site`, `outage-atlas`, and `nasa-rag`. To add one, add it to the list, deploy the test and prod baseline stacks, and set its GitHub environment variables.
 
-After deploying a baseline stack, set the variables in each repository's GitHub environment from the stack outputs. Each repository needs `test` and `prod` environments; `prod` should require approval and allow deployments only from `main`. With the GitHub CLI signed in (`gh auth login`), set them for every repository and environment:
+After deploying both baseline stacks, print each repository's values from the stack outputs. The loop stops if a stack or output is missing.
 
 Bash:
 
@@ -317,13 +316,12 @@ Bash:
 for stage in test prod; do
   stack=Foundation-Test-Baseline
   [ "$stage" = prod ] && stack=Foundation-Prod-Baseline
-  account=$(aws sts get-caller-identity --profile "$stage" --query Account --output text)
+  account=$(aws sts get-caller-identity --profile "$stage" --query Account --output text) || exit 1
   for repo in aws-foundation portfolio-site outage-atlas nasa-rag; do
     role=$(aws cloudformation describe-stacks --stack-name "$stack" --profile "$stage" --region us-east-1 \
       --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text) || exit 1
     if [[ "$role" != arn:* ]]; then echo "No role ARN for $repo in $stack" >&2; exit 1; fi
-    gh variable set AWS_ACCOUNT_ID --repo "nathan-a-reed/$repo" --env "$stage" --body "$account"
-    gh variable set AWS_DEPLOY_ROLE_ARN --repo "nathan-a-reed/$repo" --env "$stage" --body "$role"
+    printf '%s (%s)\n  AWS_ACCOUNT_ID=%s\n  AWS_DEPLOY_ROLE_ARN=%s\n' "$repo" "$stage" "$account" "$role"
   done
 done
 ```
@@ -331,17 +329,23 @@ done
 PowerShell:
 
 ```powershell
-foreach ($stage in 'test', 'prod') {
+$values = foreach ($stage in 'test', 'prod') {
   $stack = if ($stage -eq 'test') { 'Foundation-Test-Baseline' } else { 'Foundation-Prod-Baseline' }
   $account = aws sts get-caller-identity --profile $stage --query Account --output text
   foreach ($repo in 'aws-foundation', 'portfolio-site', 'outage-atlas', 'nasa-rag') {
     $role = aws cloudformation describe-stacks --stack-name $stack --profile $stage --region us-east-1 --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text
     if ($role -notlike 'arn:*') { throw "No role ARN for $repo in $stack" }
-    gh variable set AWS_ACCOUNT_ID --repo "nathan-a-reed/$repo" --env $stage --body $account
-    gh variable set AWS_DEPLOY_ROLE_ARN --repo "nathan-a-reed/$repo" --env $stage --body $role
+    [pscustomobject]@{ Repository = $repo; Environment = $stage; AWS_ACCOUNT_ID = $account; AWS_DEPLOY_ROLE_ARN = $role }
   }
 }
+$values | Format-List
 ```
+
+Then, for each repository on GitHub, open **Settings → Environments**:
+
+1. Create the `test` and `prod` environments if they do not exist.
+2. In `prod`, add yourself as a required reviewer and limit deployment branches to `main`.
+3. In each environment, under **Environment variables**, add `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` with the printed values.
 
 A workflow job then authenticates with:
 

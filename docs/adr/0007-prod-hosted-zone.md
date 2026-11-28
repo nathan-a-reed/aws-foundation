@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`docs/standards/aws.md` puts the `nathanreed.dev` zone in prod, delegates `test.nathanreed.dev` to test, and gives applications the zone through `/foundation/dns/zone-name` and `/foundation/dns/zone-id`. The current zone is in the management account, its records were added by hand, and the domain's registration delegates to its name servers. DNSSEC is off: the zone is not signing and the `.dev` registry has no DS record for the domain. Mail for the domain runs through Google Workspace, so the move must not change any answers. One record, `server.nathanreed.dev`, points to a home lab address, which is personal data and cannot go into this public repository.
+`docs/standards/aws.md` puts the `nathanreed.dev` zone in prod, delegates `test.nathanreed.dev` to test, and gives applications the zone through `/foundation/dns/zone-name` and `/foundation/dns/zone-id`. Route 53 created the current zone in the management account when the domain was registered there, and its records were added by hand. Mail for the domain runs through Google Workspace, so the move must not change any answers. One record, `server.nathanreed.dev`, points to a home lab address, which is personal data and cannot go into this public repository.
 
 ## Decision
 
@@ -14,7 +14,7 @@ Accepted
 - The zone is retained if the stack is deleted, so the registered name servers never point at a deleted zone.
 - The stack publishes `/foundation/dns/zone-name` and `/foundation/dns/zone-id` as SSM parameters and outputs the zone's name servers.
 - The `server` A record's address comes from `SERVER_IP_ADDRESS` at deploy time. Synthesizing the prod stage without it fails, so a deploy cannot delete the record. CI reads it from a secret in the `prod` GitHub environment, because the workflow logs of a public repository are public and secrets are masked in them.
-- DNSSEC signing and query logging are not enabled, so the cutover needs no DNSSEC changes.
+- DNSSEC signing and query logging are not enabled.
 - The cutover and the removal of the old zone follow the DNS migration runbook (FND-16).
 
 ## Alternatives

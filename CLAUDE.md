@@ -57,7 +57,7 @@ lib/config.ts          Typed configuration; account IDs from environment variabl
 lib/foundation-app.ts  Adds a stack or stage per environment that has an account ID
 lib/stacks/            Management and account baseline stacks
 lib/stages/            Stage for each workload account
-lib/constructs/        Budgets, anomaly alerts, organization trail, SCPs, root sign-in alert
+lib/constructs/        Budgets, anomaly alerts, organization trail, SCPs, root sign-in alert, deployment roles
 test/                  Assertion tests
 docs/adr/              Architecture decision records
 docs/standards/        Synced from engineering-standards

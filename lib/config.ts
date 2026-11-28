@@ -30,6 +30,11 @@ export interface FoundationConfig {
   readonly repository: string;
   readonly region: string;
   /**
+   * Repositories, as `owner/name`, that get a GitHub OIDC deployment role in
+   * the test and prod accounts.
+   */
+  readonly deploymentRepositories: readonly string[];
+  /**
    * Account IDs for the environments to synthesize. An environment without an
    * account ID is left out of the app, so a deployment can never target an
    * account it was not given.
@@ -132,6 +137,12 @@ export function loadConfig(variables: Variables): FoundationConfig {
     project: 'aws-foundation',
     repository: 'nathan-a-reed/aws-foundation',
     region: 'us-east-1',
+    deploymentRepositories: [
+      'nathan-a-reed/aws-foundation',
+      'nathan-a-reed/portfolio-site',
+      'nathan-a-reed/outage-atlas',
+      'nathan-a-reed/nasa-rag',
+    ],
     accounts,
     management: loadManagementConfig(variables, accounts),
     budgets: { organization: 60, management: 5, test: 15, prod: 40 },

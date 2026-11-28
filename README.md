@@ -2,7 +2,7 @@
 
 AWS Organization baseline for the `nathanreed.dev` projects: accounts and guardrails, sign-in through IAM Identity Center, GitHub deployment roles, DNS, and budgets. Application repositories build on it through a small contract of SSM parameters.
 
-**Status:** the management stack defines the organization trail, service control policies, root sign-in alert, budgets, and cost anomaly detection. Deployment roles and DNS are added next.
+**Status:** the management stack defines the organization trail, service control policies, root sign-in alert, budgets, and cost anomaly detection. The test and prod baseline stacks define the GitHub OIDC deployment roles. DNS is added next.
 
 ## Accounts
 
@@ -56,14 +56,15 @@ flowchart LR
 | Stack | Account | Contains |
 |---|---|---|
 | `Foundation-Management-Organization` | Management | Service control policies, organization trail, budgets, cost anomaly detection |
-| `Foundation-Test-Baseline` | Test | Deployment roles, `test.nathanreed.dev` zone, `/foundation/` parameters |
-| `Foundation-Prod-Baseline` | Prod | Deployment roles, `nathanreed.dev` zone, `/foundation/` parameters |
+| `Foundation-Test-Baseline` | Test | GitHub OIDC provider and deployment roles; later the `test.nathanreed.dev` zone and `/foundation/` parameters |
+| `Foundation-Prod-Baseline` | Prod | GitHub OIDC provider and deployment roles; later the `nathanreed.dev` zone and `/foundation/` parameters |
 
 ```
 bin/app.ts        Entry point: management stack and test/prod stages
 lib/config.ts     Typed configuration; account IDs from environment variables
 lib/stacks/       Management and account baseline stacks
 lib/stages/       Stage for each workload account
+lib/constructs/   Budgets, anomaly alerts, trail, SCPs, root sign-in alert, deployment roles
 test/             Assertion tests
 docs/adr/         Architecture decision records
 docs/standards/   Synced from engineering-standards
@@ -75,6 +76,7 @@ docs/standards/   Synced from engineering-standards
 - **Account IDs and the cost alert address come from environment variables**, never source (see [Workstation variables](#workstation-variables)). An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
 - **Guardrails apply to the `Workloads` OU** ([ADR 0004](docs/adr/0004-organization-guardrails.md)). Two service control policies deny leaving the organization, changing the organization trail, root user actions outside centralized root access, and actions outside `us-east-1` other than global services. An organization trail records management events from every account.
 - **Budgets and anomaly alerts track gross spend** ([ADR 0003](docs/adr/0003-budgets-and-cost-anomaly-detection.md)). Credits and refunds are excluded, and one customer managed anomaly monitor covers all three accounts.
+- **GitHub Actions deploy through one OIDC role per repository and account** ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)). A role trusts only `repo:<owner>/<repo>:environment:<test|prod>` and can only assume the CDK bootstrap roles. See [Deployment roles](#deployment-roles).
 - **The management stack is deployed only from a workstation** ([ADR 0002](docs/adr/0002-deploy-management-stack-from-workstation.md)). CI has no access to the management account, and every account's bootstrap roles trust only that account.
 - **Node.js runs the TypeScript directly** through its built-in type stripping, so there is no compile step or TypeScript runner. Code uses only erasable syntax (no enums, namespaces, or parameter properties), and relative imports end in `.ts`. `tsc` runs as a type check only.
 - **cdk-nag runs as a CDK policy validation plugin.** Any `AwsSolutions` finding fails synthesis. Acknowledge a finding on the specific resource, with a reason:
@@ -158,7 +160,7 @@ $env:WORKLOADS_OU_ID = aws organizations list-organizational-units-for-parent --
 
 ## Testing
 
-Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, that cdk-nag blocks non-compliant resources in every stack, budgets and anomaly alerts, the SCP statements and their attachment, the trail and its bucket's encryption, public access block, TLS policy, and expiration, and the root sign-in alert. The test app loads the feature flags from `cdk.json`, so tests see the same templates as `cdk synth`.
+Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, that cdk-nag blocks non-compliant resources in every stack, budgets and anomaly alerts, the SCP statements and their attachment, the trail and its bucket's encryption, public access block, TLS policy, and expiration, the root sign-in alert, and the deployment roles' trust conditions and permissions. The test app loads the feature flags from `cdk.json`, so tests see the same templates as `cdk synth`.
 
 Pull requests run three checks: `Quality` (format, lint, type check), `Tests`, and `Synth` (`cdk synth` with cdk-nag, using example account IDs).
 
@@ -278,9 +280,47 @@ TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --o
   npx cdk deploy 'Test/*' --profile test
 ```
 
+```bash
+PROD_ACCOUNT_ID=$(aws sts get-caller-identity --profile prod --query Account --output text) \
+  npx cdk deploy 'Prod/*' --profile prod
+```
+
+## Deployment roles
+
+Each repository in `deploymentRepositories` (`lib/config.ts`) has a role in test and in prod ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)):
+
+- The trust policy accepts only GitHub OIDC tokens with audience `sts.amazonaws.com` and subject `repo:<owner>/<repo>:environment:<test|prod>`, so only jobs that run in that repository's matching GitHub environment can assume it.
+- The role can only assume the account's CDK deploy, file publishing, and image publishing bootstrap roles. CloudFormation makes the changes.
+
+The repositories are `aws-foundation`, `portfolio-site`, `outage-atlas`, and `nasa-rag`. To add one, add it to the list, deploy the test and prod baseline stacks, and set its GitHub environment variables.
+
+After deploying a baseline stack, set the variables in each repository's GitHub environment from the stack outputs. Each repository needs `test` and `prod` environments; `prod` should require approval and allow deployments only from `main`. With the GitHub CLI, for `aws-foundation` in test:
+
+```bash
+account=$(aws sts get-caller-identity --profile test --query Account --output text)
+role=$(aws cloudformation describe-stacks --stack-name Foundation-Test-Baseline --profile test --region us-east-1 \
+  --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the test environment of nathan-a-reed/aws-foundation'].OutputValue" --output text)
+gh variable set AWS_ACCOUNT_ID --repo nathan-a-reed/aws-foundation --env test --body "$account"
+gh variable set AWS_DEPLOY_ROLE_ARN --repo nathan-a-reed/aws-foundation --env test --body "$role"
+```
+
+Repeat with `prod` (profile, stack `Foundation-Prod-Baseline`, environment, and output description) and with each repository name. A workflow job then authenticates with:
+
+```yaml
+environment: test
+permissions:
+  id-token: write
+  contents: read
+steps:
+  - uses: aws-actions/configure-aws-credentials@<commit SHA> # <version>
+    with:
+      role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      aws-region: us-east-1
+```
+
 ## Expected cost
 
-Budgets without actions and Cost Anomaly Detection have no charge. The first copy of management events delivered by a trail is free, so the organization trail costs only its S3 storage, a few cents a month. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
+Budgets without actions and Cost Anomaly Detection have no charge. The first copy of management events delivered by a trail is free, so the organization trail costs only its S3 storage, a few cents a month. CDK bootstrap adds an S3 bucket and an ECR repository per account, which cost cents while they hold little. IAM roles and OIDC providers have no charge. Once complete, the foundation is expected to cost about $1–2 per month, mostly the two Route 53 hosted zones at $0.50 each, within the $5 management budget and the workload account budgets.
 
 ## Standards
 

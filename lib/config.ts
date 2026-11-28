@@ -78,6 +78,10 @@ const formats = {
   accountId: { pattern: /^\d{12}$/, description: 'a 12-digit AWS account ID' },
   email: { pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, description: 'an email address' },
   organizationId: { pattern: /^o-[a-z0-9]{10,32}$/, description: 'an organization ID (o-...)' },
+  ipv4Address: {
+    pattern: /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/,
+    description: 'an IPv4 address',
+  },
   ouId: {
     pattern: /^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$/,
     description: 'an organizational unit ID (ou-...)',
@@ -129,9 +133,34 @@ function loadManagementConfig(
 }
 
 /**
- * Reads account IDs, organization IDs, and alert addresses from environment
- * variables. They are kept out of source; CI provides them from GitHub
- * environment variables and workstation deploys from the shell.
+ * The prod zone needs `SERVER_IP_ADDRESS` whenever the prod stage is in the
+ * app. Failing without it keeps a deploy from deleting the record.
+ */
+function loadHostedZones(
+  variables: Variables,
+  accounts: Partial<Record<EnvironmentName, string>>,
+): FoundationConfig['hostedZones'] {
+  if (!accounts.prod) {
+    return {};
+  }
+  const serverIpAddress = readVariable(variables, 'SERVER_IP_ADDRESS', 'ipv4Address');
+  if (!serverIpAddress) {
+    throw new Error('PROD_ACCOUNT_ID also requires SERVER_IP_ADDRESS.');
+  }
+  return {
+    prod: {
+      zoneName: 'nathanreed.dev',
+      records: prodZoneRecords({ serverIpAddress }),
+      retain: true,
+    },
+  };
+}
+
+/**
+ * Reads account IDs, organization IDs, alert addresses, and the home lab
+ * address from environment variables. They are kept out of source; CI
+ * provides them from GitHub environment variables and secrets, and workstation
+ * deploys from the shell.
  */
 export function loadConfig(variables: Variables): FoundationConfig {
   const accounts: Partial<Record<EnvironmentName, string>> = {};
@@ -158,9 +187,7 @@ export function loadConfig(variables: Variables): FoundationConfig {
       'nathan-a-reed/outage-atlas',
       'nathan-a-reed/nasa-rag',
     ],
-    hostedZones: {
-      prod: { zoneName: 'nathanreed.dev', records: prodZoneRecords, retain: true },
-    },
+    hostedZones: loadHostedZones(variables, accounts),
     accounts,
     management: loadManagementConfig(variables, accounts),
     budgets: { organization: 60, management: 5, test: 15, prod: 40 },

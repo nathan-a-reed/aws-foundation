@@ -1,5 +1,12 @@
 import { CfnOutput, Duration, Fn, RemovalPolicy } from 'aws-cdk-lib';
-import { CnameRecord, MxRecord, PublicHostedZone, TxtRecord } from 'aws-cdk-lib/aws-route53';
+import {
+  ARecord,
+  CnameRecord,
+  MxRecord,
+  PublicHostedZone,
+  RecordTarget,
+  TxtRecord,
+} from 'aws-cdk-lib/aws-route53';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
@@ -25,8 +32,14 @@ export interface CnameDnsRecord extends RecordBase {
   readonly value: string;
 }
 
+export interface ADnsRecord extends RecordBase {
+  readonly type: 'A';
+  /** IPv4 addresses. */
+  readonly values: readonly string[];
+}
+
 /** One record set: every value for a name and type. */
-export type DnsRecord = MxDnsRecord | TxtDnsRecord | CnameDnsRecord;
+export type DnsRecord = MxDnsRecord | TxtDnsRecord | CnameDnsRecord | ADnsRecord;
 
 export interface AccountDnsZoneProps {
   readonly zoneName: string;
@@ -78,6 +91,12 @@ export class AccountDnsZone extends Construct {
           break;
         case 'CNAME':
           new CnameRecord(this, recordConstructId, { ...common, domainName: record.value });
+          break;
+        case 'A':
+          new ARecord(this, recordConstructId, {
+            ...common,
+            target: RecordTarget.fromIpAddresses(...record.values),
+          });
           break;
       }
     }

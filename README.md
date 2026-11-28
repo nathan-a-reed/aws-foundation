@@ -2,7 +2,7 @@
 
 AWS Organization baseline for the `nathanreed.dev` projects: accounts and guardrails, sign-in through IAM Identity Center, GitHub deployment roles, DNS, and budgets. Application repositories build on it through a small contract of SSM parameters.
 
-**Status:** the management stack defines the organization trail, service control policies, root sign-in alert, budgets, and cost anomaly detection. The test and prod baseline stacks define the GitHub OIDC deployment roles. DNS is added next.
+**Status:** the management stack defines the organization trail, service control policies, root sign-in alert, budgets, and cost anomaly detection. The test and prod baseline stacks define the GitHub OIDC deployment roles, and the prod stack defines the `nathanreed.dev` hosted zone. The name server cutover and the test zone are added next.
 
 ## Accounts
 
@@ -57,7 +57,7 @@ flowchart LR
 |---|---|---|
 | `Foundation-Management-Organization` | Management | Service control policies, organization trail, budgets, cost anomaly detection |
 | `Foundation-Test-Baseline` | Test | GitHub OIDC provider and deployment roles; later the `test.nathanreed.dev` zone and `/foundation/` parameters |
-| `Foundation-Prod-Baseline` | Prod | GitHub OIDC provider and deployment roles; later the `nathanreed.dev` zone and `/foundation/` parameters |
+| `Foundation-Prod-Baseline` | Prod | GitHub OIDC provider and deployment roles, `nathanreed.dev` zone, `/foundation/` parameters |
 
 ```
 bin/app.ts        Entry point: management stack and test/prod stages
@@ -74,6 +74,7 @@ docs/standards/   Synced from engineering-standards
 
 - **Decisions are recorded as ADRs** in [`docs/adr/`](docs/adr), starting with [0001](docs/adr/0001-record-architecture-decisions.md).
 - **Account IDs and the cost alert address come from environment variables**, never source (see [Workstation variables](#workstation-variables)). An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
+- **The `nathanreed.dev` zone lives in prod** ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)), with the records copied from the zone the domain registration created in the management account. The home lab address comes from `SERVER_IP_ADDRESS`, not source. See [DNS](#dns).
 - **Guardrails apply to the `Workloads` OU** ([ADR 0004](docs/adr/0004-organization-guardrails.md)). Two service control policies deny leaving the organization, changing the organization trail, root user actions outside centralized root access, and actions outside `us-east-1` other than global services. An organization trail records management events from every account.
 - **Budgets and anomaly alerts track gross spend** ([ADR 0003](docs/adr/0003-budgets-and-cost-anomaly-detection.md)). Credits and refunds are excluded, and one customer managed anomaly monitor covers all three accounts.
 - **GitHub Actions deploy through one OIDC role per repository and account** ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)). A role trusts only `repo:<owner>/<repo>:environment:<test|prod>` and can only assume the CDK bootstrap roles. See [Deployment roles](#deployment-roles).
@@ -115,7 +116,7 @@ Synthesis needs at least one account ID. Example values are enough to check the 
 ```bash
 MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=777788889999 \
   COST_ALERT_EMAIL=costs@example.com SECURITY_ALERT_EMAIL=security@example.com \
-  ORGANIZATION_ID=o-a1b2c3d4e5 WORKLOADS_OU_ID=ou-a1b2-c3d4e5f6 npm run synth
+  ORGANIZATION_ID=o-a1b2c3d4e5 WORKLOADS_OU_ID=ou-a1b2-c3d4e5f6 SERVER_IP_ADDRESS=192.0.2.10 npm run synth
 ```
 
 ### Workstation variables
@@ -129,8 +130,9 @@ MANAGEMENT_ACCOUNT_ID=111122223333 TEST_ACCOUNT_ID=444455556666 PROD_ACCOUNT_ID=
 | `SECURITY_ALERT_EMAIL` | Root sign-in alerts |
 | `ORGANIZATION_ID` | Organization trail (`o-...`) |
 | `WORKLOADS_OU_ID` | Target of the service control policies (`ou-...`) |
+| `SERVER_IP_ADDRESS` | `server.nathanreed.dev` in the prod zone; required with `PROD_ACCOUNT_ID` |
 
-Set them for the current shell before bootstrapping or deploying from a workstation. Replace the addresses with your own.
+Set them for the current shell before bootstrapping or deploying from a workstation. Replace the email addresses and the home lab address (`192.0.2.10`) with your own.
 
 Bash:
 
@@ -143,6 +145,7 @@ export SECURITY_ALERT_EMAIL=security@example.com
 export ORGANIZATION_ID=$(aws organizations describe-organization --profile management --query Organization.Id --output text)
 root_id=$(aws organizations list-roots --profile management --query 'Roots[0].Id' --output text)
 export WORKLOADS_OU_ID=$(aws organizations list-organizational-units-for-parent --profile management --parent-id "$root_id" --query "OrganizationalUnits[?Name=='Workloads'].Id" --output text)
+export SERVER_IP_ADDRESS=192.0.2.10
 ```
 
 PowerShell:
@@ -156,11 +159,12 @@ $env:SECURITY_ALERT_EMAIL = 'security@example.com'
 $env:ORGANIZATION_ID = aws organizations describe-organization --profile management --query Organization.Id --output text
 $rootId = aws organizations list-roots --profile management --query 'Roots[0].Id' --output text
 $env:WORKLOADS_OU_ID = aws organizations list-organizational-units-for-parent --profile management --parent-id $rootId --query "OrganizationalUnits[?Name=='Workloads'].Id" --output text
+$env:SERVER_IP_ADDRESS = '192.0.2.10'
 ```
 
 ## Testing
 
-Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, that cdk-nag blocks non-compliant resources in every stack, budgets and anomaly alerts, the SCP statements and their attachment, the trail and its bucket's encryption, public access block, TLS policy, and expiration, the root sign-in alert, and the deployment roles' trust conditions and permissions. The test app loads the feature flags from `cdk.json`, so tests see the same templates as `cdk synth`.
+Tests use Vitest against the synthesized app, with `aws-cdk-lib/assertions` for template properties. They need no AWS credentials or network access. They cover configuration validation, stack placement and tags, that cdk-nag blocks non-compliant resources in every stack, budgets and anomaly alerts, the SCP statements and their attachment, the trail and its bucket's encryption, public access block, TLS policy, and expiration, the root sign-in alert, the deployment roles' trust conditions and permissions, and the prod zone's records, retention, and `/foundation/dns/` parameters. The test app loads the feature flags from `cdk.json`, so tests see the same templates as `cdk synth`.
 
 Pull requests run three checks: `Quality` (format, lint, type check), `Tests`, and `Synth` (`cdk synth` with cdk-nag, using example account IDs).
 
@@ -319,6 +323,14 @@ steps:
       role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       aws-region: us-east-1
 ```
+
+## DNS
+
+The prod baseline stack defines the public `nathanreed.dev` hosted zone ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)) with the records in `lib/dns/prod-zone-records.ts`: every record of the zone Route 53 created in the management account at registration, except NS and SOA. The zone is kept if the stack is deleted. Its name servers are a stack output, and the registered domain points to them after the cutover in the DNS migration runbook.
+
+The `server` A record holds the home lab address from `SERVER_IP_ADDRESS`, which stays out of this public repository. Synthesizing the prod stage without it fails, so a deploy cannot remove the record. The `Deploy prod` job reads it from the `SERVER_IP_ADDRESS` secret in the `prod` GitHub environment; secrets are masked in the public workflow logs.
+
+Change records only in `lib/dns/prod-zone-records.ts`. Records added by hand in the console are not tracked.
 
 ## Expected cost
 

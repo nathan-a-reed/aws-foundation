@@ -19,6 +19,7 @@ export const exampleVariables = {
   SECURITY_ALERT_EMAIL: 'security@example.com',
   ORGANIZATION_ID: 'o-a1b2c3d4e5',
   WORKLOADS_OU_ID: 'ou-a1b2-c3d4e5f6',
+  SERVER_IP_ADDRESS: '192.0.2.10',
 };
 
 const cdkJson = JSON.parse(readFileSync(new URL('../cdk.json', import.meta.url), 'utf8')) as {

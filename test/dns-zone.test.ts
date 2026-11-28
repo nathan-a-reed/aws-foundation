@@ -54,6 +54,50 @@ describe('prod hosted zone', () => {
     });
   });
 
+  it('holds every record of the current zone except NS and SOA', () => {
+    const zone = { Ref: zoneLogicalId(template) };
+    const records = Object.values(template.findResources('AWS::Route53::RecordSet')).map(
+      (resource) => (resource as { Properties: unknown }).Properties,
+    );
+
+    // Values as Route 53 lists them for the current zone.
+    expect(records).toHaveLength(4);
+    expect(records).toEqual(
+      expect.arrayContaining([
+        {
+          HostedZoneId: zone,
+          Name: 'nathanreed.dev.',
+          Type: 'MX',
+          TTL: '300',
+          ResourceRecords: ['1 smtp.google.com.'],
+        },
+        {
+          HostedZoneId: zone,
+          Name: 'nathanreed.dev.',
+          Type: 'TXT',
+          TTL: '300',
+          ResourceRecords: [
+            '"google-site-verification=wd_7_jGZ1Iykqj-mcaxFGumrE5l42kGhFCctRXZFzMc"',
+          ],
+        },
+        {
+          HostedZoneId: zone,
+          Name: '_55498b75d58d5e0f1b76d605099fc1cc.nathanreed.dev.',
+          Type: 'CNAME',
+          TTL: '500',
+          ResourceRecords: ['_251e74c9a7be8ac0a2f9bf9e33dd6855.xlfgrmvvlj.acm-validations.aws.'],
+        },
+        {
+          HostedZoneId: zone,
+          Name: 'server.nathanreed.dev.',
+          Type: 'A',
+          TTL: '300',
+          ResourceRecords: [exampleVariables.SERVER_IP_ADDRESS],
+        },
+      ]),
+    );
+  });
+
   it('outputs the name servers for the delegation', () => {
     template.hasOutput('*', {
       Value: { 'Fn::Join': [',', { 'Fn::GetAtt': [zoneLogicalId(template), 'NameServers'] }] },

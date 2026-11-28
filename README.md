@@ -332,9 +332,10 @@ PowerShell:
 $values = foreach ($stage in 'test', 'prod') {
   $stack = if ($stage -eq 'test') { 'Foundation-Test-Baseline' } else { 'Foundation-Prod-Baseline' }
   $account = aws sts get-caller-identity --profile $stage --query Account --output text
+  if ($LASTEXITCODE -ne 0 -or [string]$account -notmatch '^\d{12}$') { throw "No account ID for profile $stage" }
   foreach ($repo in 'aws-foundation', 'portfolio-site', 'outage-atlas', 'nasa-rag') {
     $role = aws cloudformation describe-stacks --stack-name $stack --profile $stage --region us-east-1 --query "Stacks[0].Outputs[?Description=='AWS_DEPLOY_ROLE_ARN for the $stage environment of nathan-a-reed/$repo'].OutputValue" --output text
-    if ($role -notlike 'arn:*') { throw "No role ARN for $repo in $stack" }
+    if ($LASTEXITCODE -ne 0 -or [string]$role -notmatch '^arn:aws:iam::\d{12}:role/') { throw "No role ARN for $repo in $stack" }
     [pscustomobject]@{ Repository = $repo; Environment = $stage; AWS_ACCOUNT_ID = $account; AWS_DEPLOY_ROLE_ARN = $role }
   }
 }

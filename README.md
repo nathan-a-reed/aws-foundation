@@ -273,7 +273,9 @@ After the first deploy of the budgets, complete these one-time steps in the mana
 
 The root sign-in alert catches console sign-ins recorded in `us-east-1`. A sign-in through another Region's endpoint is still recorded by the trail but does not raise an alert.
 
-**Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation:
+**Test and prod** are deployed by GitHub Actions: test on merge to `main`, then prod after approval in the `prod` environment. Each job reads `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` from its GitHub environment. Until that pipeline exists, deploy from a workstation after `aws sso login --profile management`.
+
+Bash:
 
 ```bash
 TEST_ACCOUNT_ID=$(aws sts get-caller-identity --profile test --query Account --output text) \

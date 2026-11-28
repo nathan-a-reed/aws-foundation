@@ -74,7 +74,7 @@ docs/standards/   Synced from engineering-standards
 
 - **Decisions are recorded as ADRs** in [`docs/adr/`](docs/adr), starting with [0001](docs/adr/0001-record-architecture-decisions.md).
 - **Account IDs and the cost alert address come from environment variables**, never source (see [Workstation variables](#workstation-variables)). An environment without an account ID is left out of the app, so a deploy can only target the accounts it was given.
-- **The `nathanreed.dev` zone lives in prod** ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)), with the records copied from the zone the domain registration created in the management account. The home lab address comes from `SERVER_IP_ADDRESS`, not source. See [DNS](#dns).
+- **The `nathanreed.dev` zone lives in prod** ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)), with the records copied from the current zone in the management account. The home lab address comes from `SERVER_IP_ADDRESS`, not source. See [DNS](#dns).
 - **Guardrails apply to the `Workloads` OU** ([ADR 0004](docs/adr/0004-organization-guardrails.md)). Two service control policies deny leaving the organization, changing the organization trail, root user actions outside centralized root access, and actions outside `us-east-1` other than global services. An organization trail records management events from every account.
 - **Budgets and anomaly alerts track gross spend** ([ADR 0003](docs/adr/0003-budgets-and-cost-anomaly-detection.md)). Credits and refunds are excluded, and one customer managed anomaly monitor covers all three accounts.
 - **GitHub Actions deploy through one OIDC role per repository and account** ([ADR 0005](docs/adr/0005-github-oidc-deployment-roles.md)). A role trusts only `repo:<owner>/<repo>:environment:<test|prod>` and can only assume the CDK bootstrap roles. See [Deployment roles](#deployment-roles).
@@ -326,7 +326,7 @@ steps:
 
 ## DNS
 
-The prod baseline stack defines the public `nathanreed.dev` hosted zone ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)) with the records in `lib/dns/prod-zone-records.ts`: every record of the zone Route 53 created in the management account at registration, except NS and SOA. The zone is kept if the stack is deleted. Its name servers are a stack output, and the registered domain points to them after the cutover in the DNS migration runbook.
+The prod baseline stack defines the public `nathanreed.dev` hosted zone ([ADR 0007](docs/adr/0007-prod-hosted-zone.md)) with the records in `lib/dns/prod-zone-records.ts`: every record of the current zone in the management account, except NS and SOA. The zone is kept if the stack is deleted. Its name servers are a stack output, and the registered domain points to them after the cutover in the DNS migration runbook.
 
 The `server` A record holds the home lab address from `SERVER_IP_ADDRESS`, which stays out of this public repository. Synthesizing the prod stage without it fails, so a deploy cannot remove the record. The `Deploy prod` job reads it from the `SERVER_IP_ADDRESS` secret in the `prod` GitHub environment; secrets are masked in the public workflow logs.
 

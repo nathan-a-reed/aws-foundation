@@ -68,10 +68,23 @@ describe('loadConfig', () => {
     ['SECURITY_ALERT_EMAIL', 'security', 'an email address'],
     ['ORGANIZATION_ID', 'r-a1b2', 'an organization ID (o-...)'],
     ['WORKLOADS_OU_ID', 'o-a1b2c3d4e5', 'an organizational unit ID (ou-...)'],
+    ['SERVER_IP_ADDRESS', '192.0.2.256', 'an IPv4 address'],
   ])('rejects a malformed %s', (name, value, description) => {
     expect(() => loadConfig({ ...exampleVariables, [name]: value })).toThrow(
       `${name} must be ${description}.`,
     );
+  });
+
+  it('requires SERVER_IP_ADDRESS with the prod account', () => {
+    expect(() => loadConfig({ PROD_ACCOUNT_ID: '777788889999' })).toThrow(
+      'PROD_ACCOUNT_ID also requires SERVER_IP_ADDRESS.',
+    );
+  });
+
+  it('needs no SERVER_IP_ADDRESS without the prod account', () => {
+    const config = loadConfig({ TEST_ACCOUNT_ID: '444455556666' });
+
+    expect(config.hostedZones).toEqual({});
   });
 
   it('requires at least one account ID', () => {

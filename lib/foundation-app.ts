@@ -34,6 +34,7 @@ export function addFoundation(app: App, config: FoundationConfig): FoundationApp
         tags: stackTags(config, 'test'),
         gitHubEnvironment: 'test',
         deploymentRepositories: config.deploymentRepositories,
+        hostedZone: config.hostedZones.test,
       })
     : undefined;
 
@@ -44,6 +45,7 @@ export function addFoundation(app: App, config: FoundationConfig): FoundationApp
         tags: stackTags(config, 'prod'),
         gitHubEnvironment: 'prod',
         deploymentRepositories: config.deploymentRepositories,
+        hostedZone: config.hostedZones.prod,
       })
     : undefined;
 
